@@ -24,11 +24,33 @@ export default async function handler(req, res) {
 
     // Do not disclose whether the username/email exists.
     if (!user || !user.password_hash ||
-        !(await bcrypt.compare(String(password), String(user.password_hash)))) {
+      !(await bcrypt.compare(String(password), String(user.password_hash)))) {
       return res.status(401).json({ error: "Invalid email/username or password." });
     }
 
+
+    if (user.status === "pending") {
+      return res.status(403).json({
+        error: "Please verify your email before logging in.",
+        verificationRequired: true,
+      });
+    }
+
+    if (user.status && user.status !== "active") {
+      return res.status(403).json({
+        error: "This account is not active.",
+      });
+    }
+
+    // Create a session only after the account passes all checks.
     createSession(res, user, rememberMe !== false);
+
+    return res.status(200).json({
+      message: "Signed in successfully.",
+      user: publicUser(user),
+    });
+
+
     return res.status(200).json({ message: "Signed in successfully.", user: publicUser(user) });
   } catch (error) {
     console.error("Login error:", error.message);
