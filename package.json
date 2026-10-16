@@ -3,16 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
-  "scripts": {
-    "dev": "vercel dev"
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "googleapis": "^144.0.0",
-    "jsonwebtoken": "^9.0.2"
-  },
-  "devDependencies": {
-    "vercel": "^39.2.0"
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^10.1.2"
   }
 }
