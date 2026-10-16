@@ -9,6 +9,7 @@ import {
 
 export default async function handler(req, res) {
   setCors(req, res);
+
   if (handleOptions(req, res)) return;
 
   if (req.method !== "GET") {
@@ -20,24 +21,33 @@ export default async function handler(req, res) {
 
     if (!session?.username) {
       clearSession(res);
-      return res.status(401).json({ user: null });
+      return res.status(401).json({ error: "Not signed in.", user: null });
     }
 
     const users = await getUsers();
+
     const user = users.find(
       (item) =>
         String(item.username || "").toLowerCase() ===
         String(session.username).toLowerCase()
     );
 
-    if (!user || (user.status && user.status !== "active")) {
+    if (!user || user.status !== "active") {
       clearSession(res);
-      return res.status(401).json({ user: null });
+      return res.status(401).json({
+        error: "Session is invalid or the account is inactive.",
+        user: null,
+      });
     }
 
-    return res.status(200).json({ user: publicUser(user) });
+    return res.status(200).json({
+      user: publicUser(user),
+    });
   } catch (error) {
-    console.error("Session lookup error:", error.message);
-    return res.status(500).json({ error: "Unable to check the current session." });
+    console.error("Session check error:", error.message);
+
+    return res.status(500).json({
+      error: "Unable to verify session right now.",
+    });
   }
 }
