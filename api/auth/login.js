@@ -50,8 +50,6 @@ export default async function handler(req, res) {
       user: publicUser(user),
     });
 
-
-    return res.status(200).json({ message: "Signed in successfully.", user: publicUser(user) });
   } catch (error) {
     console.error("Login error:", error.message);
     return res.status(500).json({ error: "Unable to sign in right now. Check backend configuration and try again." });
