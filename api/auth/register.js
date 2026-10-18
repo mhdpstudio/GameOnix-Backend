@@ -18,7 +18,7 @@ import {
 } from "../../lib/http.js";
 
 const DEFAULT_AVATAR =
-  "https://raw.githubusercontent.com/mhdpstudio/GameOnix-Data-All/main/default.jpg";
+  "https://raw.githubusercontent.com/mhdpstudio/GameOnix-Data-All/main/0.png";
 
 const VERIFICATION_HOURS = 24;
 

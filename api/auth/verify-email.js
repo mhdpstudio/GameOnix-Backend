@@ -126,11 +126,12 @@ export default async function handler(req, res) {
       pending_expires_at: "",
     });
 
-    createSession(res, updatedUser, rememberMe !== false);
+    const sessionToken = createSession(res, updatedUser, rememberMe !== false);
 
     return res.status(200).json({
       message: "Email verified successfully. Your account is now active.",
       user: publicUser(updatedUser),
+      sessionToken,
     });
   } catch (error) {
     console.error("Email verification error:", error.message);

@@ -78,13 +78,14 @@ export default async function handler(req, res) {
 
     stage = "create session";
 
-    createSession(res, user, rememberMe !== false);
+    const sessionToken = createSession(res, user, rememberMe !== false);
 
     stage = "prepare response";
 
     return res.status(200).json({
       message: "Signed in successfully.",
       user: publicUser(user),
+      sessionToken,
     });
   } catch (error) {
     console.error("[LOGIN API ERROR]", {
