@@ -8,6 +8,8 @@ This is a standalone Vercel serverless backend. It does not contain your React f
 - `POST /api/auth/login` — sign in with email or username
 - `GET /api/auth/me` — return the current signed-in user
 - `POST /api/auth/logout` — clear the session cookie
+- `POST /api/auth/forgot-password` — send a password reset code; the admin API can request a secure reset link
+- `POST /api/auth/reset-password` — reset using either the emailed code or secure link
 - `GET /api/health` — health check
 
 ## 1. Prepare the Google Sheet
@@ -37,6 +39,7 @@ Set these in Vercel Project Settings → Environment Variables:
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL`: service account email.
 - `GOOGLE_PRIVATE_KEY`: the full private key, including BEGIN/END lines. In Vercel, paste the key as one value with newline characters; the code also supports literal `\\n`.
 - `SESSION_SECRET`: a cryptographically random secret of at least 32 characters.
+- `GAMEONIX_API_TOKEN_SECRET`: a random secret of at least 32 characters, shared with the GameOnix-Backend Vercel project to authenticate its admin reset-link request.
 - `FRONTEND_URL`: exact frontend origin, without a trailing slash, e.g. `https://your-frontend.example.com`. For local development use `http://localhost:5173`.
 
 After setting or changing environment variables, redeploy the project.

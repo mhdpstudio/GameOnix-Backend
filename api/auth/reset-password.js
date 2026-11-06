@@ -40,20 +40,31 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { email, code, password, confirmPassword } = getJsonBody(req);
+    const { email, code, token, password, confirmPassword } = getJsonBody(req);
 
     const cleanEmail = String(email || "").trim().toLowerCase();
     const cleanCode = String(code || "").trim();
+    const resetToken = typeof token === "string" ? token.trim() : "";
 
-    if (!cleanEmail || !cleanCode || !password || !confirmPassword) {
+    if (
+      (!resetToken && (!cleanEmail || !cleanCode)) ||
+      (resetToken && (cleanEmail || cleanCode)) ||
+      !password ||
+      !confirmPassword
+    ) {
       return res.status(400).json({
-        error: "Email, code, and both password fields are required.",
+        error: "Enter the reset information and both password fields.",
       });
     }
 
-    if (!/^\d{6}$/.test(cleanCode)) {
+    if (
+      (resetToken && !/^[A-Za-z0-9_-]{43}$/.test(resetToken)) ||
+      (!resetToken && !/^\d{6}$/.test(cleanCode))
+    ) {
       return res.status(400).json({
-        error: "Enter the 6-digit reset code.",
+        error: resetToken
+          ? "The reset link is invalid or expired."
+          : "Enter the 6-digit reset code.",
       });
     }
 
@@ -71,14 +82,17 @@ export default async function handler(req, res) {
 
     const users = await getUsers();
 
-    const user = users.find(
-      (item) =>
-        String(item.email || "").trim().toLowerCase() === cleanEmail
+    const user = users.find((item) =>
+      resetToken
+        ? codesMatch(resetToken, item.reset_password_code_hash)
+        : String(item.email || "").trim().toLowerCase() === cleanEmail
     );
 
     if (!user || (user.status && user.status !== "active")) {
       return res.status(400).json({
-        error: "The reset code is invalid or expired. Request a new code.",
+        error: resetToken
+          ? "The reset link is invalid or expired."
+          : "The reset code is invalid or expired. Request a new code.",
       });
     }
 
@@ -91,11 +105,13 @@ export default async function handler(req, res) {
       Date.now() >= Date.parse(user.reset_password_expires_at)
     ) {
       return res.status(400).json({
-        error: "The reset code is invalid or expired. Request a new code.",
+        error: resetToken
+          ? "The reset link is invalid or expired."
+          : "The reset code is invalid or expired. Request a new code.",
       });
     }
 
-    if (!codesMatch(cleanCode, user.reset_password_code_hash)) {
+    if (!resetToken && !codesMatch(cleanCode, user.reset_password_code_hash)) {
       const nextAttempts = attempts + 1;
 
       await updateUser(user.username, {
