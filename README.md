@@ -7,6 +7,8 @@ This is a standalone Vercel serverless backend. It does not contain your React f
 - `POST /api/auth/register` — create an account
 - `POST /api/auth/login` — sign in with email or username
 - `GET /api/auth/me` — return the current signed-in user
+- `GET /api/auth/me?admin=tools` — verify Publisher access to the existing Admin Tools
+- `POST /api/auth/me?admin=tools` — send a private notification or password reset link through the wallet-notifications service
 - `POST /api/auth/logout` — clear the session cookie
 - `POST /api/auth/forgot-password` — send a password reset code; the admin API can request a secure reset link
 - `POST /api/auth/reset-password` — reset using either the emailed code or secure link
@@ -44,6 +46,8 @@ Set these in Vercel Project Settings → Environment Variables:
 - `FRONTEND_URL`: exact frontend origin, without a trailing slash, e.g. `https://your-frontend.example.com`. For local development use `http://localhost:5173`.
 
 After setting or changing environment variables, redeploy the project.
+
+The Publisher's Admin Tools reuse `GAMEONIX_USERS_ADMIN_TOKEN` and `GAMEONIX_API_TOKEN_SECRET`; no additional Publisher secret is needed. The tools proxy creates a short-lived user token server-side and the wallet-notifications backend enforces the `GAMEONIX_NOTIFICATION_ADMIN_USERNAMES` allowlist. Keep `GAMEONIX_API_TOKEN_SECRET` identical in both backend Vercel projects and redeploy this GameOnix backend after updating its route.
 
 ## 4. Deploy backend only
 

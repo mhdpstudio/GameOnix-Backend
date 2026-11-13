@@ -27,6 +27,8 @@ const USER_EDITABLE_FIELDS = new Set([
   "status",
   "pending_email",
 ]);
+const WALLET_ADMIN_ACTIONS_URL =
+  "https://gameonixfav.vercel.app/api/auth/wallet-notifications";
 
 function isValidUsersAdminToken(req) {
   const expected = process.env.GAMEONIX_USERS_ADMIN_TOKEN?.trim();
@@ -40,6 +42,20 @@ function isValidUsersAdminToken(req) {
   const suppliedBytes = Buffer.from(supplied);
   return expectedBytes.length === suppliedBytes.length &&
     timingSafeEqual(expectedBytes, suppliedBytes);
+}
+
+function createAdminToolsToken(username) {
+  const secret = process.env.GAMEONIX_API_TOKEN_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("Admin actions are not configured.");
+  }
+
+  return jwt.sign({ username }, secret, {
+    algorithm: "HS256",
+    expiresIn: "60s",
+    issuer: "gameonix-community-api",
+    audience: "gameonix-web",
+  });
 }
 
 function adminUser(user) {
@@ -227,9 +243,112 @@ async function handleUsersAdmin(req, res) {
   return res.status(200).json({ user: adminUser(updatedUser) });
 }
 
+async function handleAdminTools(req, res) {
+  const adminToken = process.env.GAMEONIX_USERS_ADMIN_TOKEN?.trim();
+  if (!adminToken || adminToken.length < 32) {
+    return res.status(503).json({
+      error: "Admin tools are not configured on the backend.",
+    });
+  }
+  if (!isValidUsersAdminToken(req)) {
+    return res.status(401).json({ error: "The admin key is invalid." });
+  }
+
+  const secret = process.env.GAMEONIX_API_TOKEN_SECRET;
+  if (!secret || secret.length < 32) {
+    return res.status(503).json({
+      error: "Admin actions are not configured on the backend.",
+    });
+  }
+  res.setHeader("Cache-Control", "private, no-store, max-age=0");
+
+  if (req.method === "GET" && req.query?.username === undefined) {
+    return res.status(200).json({ ready: true });
+  }
+
+  let adminUsername;
+  let actionBody = null;
+  if (req.method === "GET") {
+    adminUsername = req.query?.username;
+  } else {
+    const body = getJsonBody(req);
+    adminUsername = body.adminUsername;
+    const { adminUsername: _adminUsername, ...forwardedBody } = body;
+    actionBody = forwardedBody;
+  }
+
+  try {
+    adminUsername = normalizeRequiredText(
+      adminUsername,
+      "Admin username",
+      24
+    );
+    if (adminUsername.length < 3 || !/^[a-zA-Z0-9_]+$/.test(adminUsername)) {
+      throw new Error(
+        "Admin username must be 3–24 characters and use only letters, numbers, or underscores."
+      );
+    }
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  if (req.method === "POST" && !["send", "send-password-reset-link"].includes(actionBody?.action)) {
+    return res.status(400).json({ error: "Unsupported admin action." });
+  }
+
+  const token = createAdminToolsToken(adminUsername);
+  const response = await fetch(WALLET_ADMIN_ACTIONS_URL, {
+    method: req.method,
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(actionBody ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(actionBody ? { body: JSON.stringify(actionBody) } : {}),
+    signal: AbortSignal.timeout(8000),
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    return res.status(response.status < 500 ? response.status : 502).json({
+      error: data.error || "Unable to complete this admin action.",
+    });
+  }
+
+  if (req.method === "GET") {
+    return res.status(200).json({
+      ready: true,
+      canSend: data.canSend === true,
+    });
+  }
+
+  return res.status(200).json({
+    success: data.success === true,
+    message:
+      data.message ||
+      (actionBody.action === "send"
+        ? "The private notification was sent."
+        : "If an active account uses that email, a secure reset link was sent."),
+  });
+}
+
 export default async function handler(req, res) {
   setCors(req, res);
   if (handleOptions(req, res)) return;
+
+  if (req.query?.admin === "tools") {
+    if (!["GET", "POST"].includes(req.method)) {
+      return methodNotAllowed(res, ["GET", "POST", "OPTIONS"]);
+    }
+    try {
+      return await handleAdminTools(req, res);
+    } catch (error) {
+      console.error("Admin tools request failed:", error.message);
+      return res.status(502).json({
+        error: "Unable to process the admin tools request.",
+      });
+    }
+  }
 
   if (req.query?.admin === "users") {
     try {
