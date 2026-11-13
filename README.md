@@ -40,6 +40,7 @@ Set these in Vercel Project Settings → Environment Variables:
 - `GOOGLE_PRIVATE_KEY`: the full private key, including BEGIN/END lines. In Vercel, paste the key as one value with newline characters; the code also supports literal `\\n`.
 - `SESSION_SECRET`: a cryptographically random secret of at least 32 characters.
 - `GAMEONIX_API_TOKEN_SECRET`: a random secret of at least 32 characters, shared with the GameOnix-Backend Vercel project to authenticate its admin reset-link request.
+- `GAMEONIX_USERS_ADMIN_TOKEN`: a separate random secret of at least 32 characters for the Publisher's protected user-management view. Keep it private; the Publisher stores it encrypted in the local Windows user profile.
 - `FRONTEND_URL`: exact frontend origin, without a trailing slash, e.g. `https://your-frontend.example.com`. For local development use `http://localhost:5173`.
 
 After setting or changing environment variables, redeploy the project.

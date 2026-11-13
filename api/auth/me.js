@@ -1,16 +1,196 @@
 
+import { timingSafeEqual } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { getSession, clearSession } from "../../lib/auth.js";
-import { getUsers, publicUser } from "../../lib/googleSheets.js";
+import { getUsers, publicUser, updateUser } from "../../lib/googleSheets.js";
 import {
   setCors,
   handleOptions,
   methodNotAllowed,
+  getJsonBody,
 } from "../../lib/http.js";
+
+const USER_EDITABLE_FIELDS = new Set([
+  "username",
+  "email",
+  "name",
+  "comments",
+  "likes",
+  "favorites",
+  "theme",
+  "avatar",
+  "status",
+  "pending_email",
+]);
+
+function isValidUsersAdminToken(req) {
+  const expected = process.env.GAMEONIX_USERS_ADMIN_TOKEN?.trim();
+  const authorization = req.headers.authorization || "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  const supplied = match?.[1]?.trim();
+
+  if (!expected || expected.length < 32 || !supplied) return false;
+
+  const expectedBytes = Buffer.from(expected);
+  const suppliedBytes = Buffer.from(supplied);
+  return expectedBytes.length === suppliedBytes.length &&
+    timingSafeEqual(expectedBytes, suppliedBytes);
+}
+
+function adminUser(user) {
+  return {
+    ...publicUser(user),
+    avatar: user.avatar || "",
+    status: user.status || "active",
+    pending_email: user.pending_email || "",
+  };
+}
+
+function normalizeRequiredText(value, label, maxLength) {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be text.`);
+  }
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maxLength) {
+    throw new Error(`${label} is required and must be ${maxLength} characters or fewer.`);
+  }
+  return normalized;
+}
+
+function validateUserUpdates(rawUpdates) {
+  if (!rawUpdates || typeof rawUpdates !== "object" || Array.isArray(rawUpdates)) {
+    throw new Error("User updates are required.");
+  }
+
+  const fields = Object.keys(rawUpdates);
+  if (!fields.length || fields.some((field) => !USER_EDITABLE_FIELDS.has(field))) {
+    throw new Error("One or more user fields cannot be edited.");
+  }
+
+  const updates = {};
+  if (Object.hasOwn(rawUpdates, "username")) {
+    const username = normalizeRequiredText(rawUpdates.username, "Username", 24);
+    if (username.length < 3 || !/^[a-zA-Z0-9_]+$/.test(username)) {
+      throw new Error("Username must be 3–24 characters and use only letters, numbers, or underscores.");
+    }
+    updates.username = username;
+  }
+
+  if (Object.hasOwn(rawUpdates, "email")) {
+    const email = normalizeRequiredText(rawUpdates.email, "Email", 254).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error("Enter a valid email address.");
+    }
+    updates.email = email;
+  }
+
+  if (Object.hasOwn(rawUpdates, "name")) {
+    updates.name = normalizeRequiredText(rawUpdates.name, "Name", 80);
+  }
+
+  for (const field of ["theme", "status"]) {
+    if (!Object.hasOwn(rawUpdates, field)) continue;
+    updates[field] = normalizeRequiredText(rawUpdates[field], field, 32);
+  }
+
+  for (const field of ["avatar", "pending_email"]) {
+    if (!Object.hasOwn(rawUpdates, field)) continue;
+    const value = rawUpdates[field];
+    if (typeof value !== "string" || value.trim().length > (field === "avatar" ? 2048 : 254)) {
+      throw new Error(`${field} must be valid text.`);
+    }
+    const normalized = value.trim();
+    if (field === "avatar" && normalized && !/^https?:\/\/\S+$/i.test(normalized)) {
+      throw new Error("Avatar must be an HTTP or HTTPS URL.");
+    }
+    if (field === "pending_email" && normalized && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      throw new Error("Pending email must be a valid email address or empty.");
+    }
+    updates[field] = normalized;
+  }
+
+  for (const field of ["comments", "likes", "favorites"]) {
+    if (!Object.hasOwn(rawUpdates, field)) continue;
+    const serialized = JSON.stringify(rawUpdates[field]);
+    if (serialized === undefined || serialized.length > 100_000) {
+      throw new Error(`${field} must be valid JSON under 100 KB.`);
+    }
+    updates[field] = rawUpdates[field];
+  }
+
+  return updates;
+}
+
+async function handleUsersAdmin(req, res) {
+  const adminToken = process.env.GAMEONIX_USERS_ADMIN_TOKEN?.trim();
+  if (!adminToken || adminToken.length < 32) {
+    return res.status(503).json({
+      error: "User management is not configured on the backend.",
+    });
+  }
+  if (!isValidUsersAdminToken(req)) {
+    return res.status(401).json({ error: "The admin key is invalid." });
+  }
+
+  if (req.method === "GET") {
+    const users = await getUsers();
+    return res.status(200).json({ users: users.map(adminUser) });
+  }
+
+  if (req.method !== "PATCH") {
+    return methodNotAllowed(res, ["GET", "PATCH", "OPTIONS"]);
+  }
+
+  const body = getJsonBody(req);
+  let username;
+  let updates;
+  try {
+    username = normalizeRequiredText(body.username, "Username", 24);
+    updates = validateUserUpdates(body.updates);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  const users = await getUsers();
+  const currentUser = users.find(
+    (user) => String(user.username || "").trim().toLowerCase() === username.toLowerCase()
+  );
+  if (!currentUser) {
+    return res.status(404).json({ error: "User not found." });
+  }
+
+  const nextUsername = String(updates.username ?? currentUser.username).trim().toLowerCase();
+  const nextEmail = String(updates.email ?? currentUser.email).trim().toLowerCase();
+  const duplicateUsername = users.some(
+    (user) => user !== currentUser && String(user.username || "").trim().toLowerCase() === nextUsername
+  );
+  const duplicateEmail = users.some(
+    (user) => nextEmail && user !== currentUser && String(user.email || "").trim().toLowerCase() === nextEmail
+  );
+  if (duplicateUsername || duplicateEmail) {
+    return res.status(409).json({
+      error: duplicateUsername ? "That username is already in use." : "That email is already in use.",
+    });
+  }
+
+  const updatedUser = await updateUser(currentUser.username, updates);
+  return res.status(200).json({ user: adminUser(updatedUser) });
+}
 
 export default async function handler(req, res) {
   setCors(req, res);
   if (handleOptions(req, res)) return;
+
+  if (req.query?.admin === "users") {
+    try {
+      return await handleUsersAdmin(req, res);
+    } catch (error) {
+      console.error("User management request failed:", error.message);
+      return res.status(500).json({
+        error: "Unable to process the user management request.",
+      });
+    }
+  }
 
   if (req.method !== "GET") {
     return methodNotAllowed(res, ["GET", "OPTIONS"]);
