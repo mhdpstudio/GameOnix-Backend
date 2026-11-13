@@ -2,7 +2,12 @@
 import { timingSafeEqual } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { getSession, clearSession } from "../../lib/auth.js";
-import { getUsers, publicUser, updateUser } from "../../lib/googleSheets.js";
+import {
+  deleteUser,
+  getUsers,
+  publicUser,
+  updateUser,
+} from "../../lib/googleSheets.js";
 import {
   setCors,
   handleOptions,
@@ -41,7 +46,7 @@ function adminUser(user) {
   return {
     ...publicUser(user),
     avatar: user.avatar || "",
-    status: user.status || "active",
+    status: String(user.status || "active").trim().toLowerCase(),
     pending_email: user.pending_email || "",
   };
 }
@@ -88,9 +93,16 @@ function validateUserUpdates(rawUpdates) {
     updates.name = normalizeRequiredText(rawUpdates.name, "Name", 80);
   }
 
-  for (const field of ["theme", "status"]) {
-    if (!Object.hasOwn(rawUpdates, field)) continue;
-    updates[field] = normalizeRequiredText(rawUpdates[field], field, 32);
+  if (Object.hasOwn(rawUpdates, "theme")) {
+    updates.theme = normalizeRequiredText(rawUpdates.theme, "Theme", 32);
+  }
+
+  if (Object.hasOwn(rawUpdates, "status")) {
+    const status = normalizeRequiredText(rawUpdates.status, "Status", 32).toLowerCase();
+    if (!["active", "pending"].includes(status)) {
+      throw new Error("Status must be active or pending.");
+    }
+    updates.status = status;
   }
 
   for (const field of ["avatar", "pending_email"]) {
@@ -137,8 +149,28 @@ async function handleUsersAdmin(req, res) {
     return res.status(200).json({ users: users.map(adminUser) });
   }
 
+  if (req.method === "DELETE") {
+    let username;
+    try {
+      username = normalizeRequiredText(getJsonBody(req).username, "Username", 24);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    const users = await getUsers();
+    const user = users.find(
+      (item) => String(item.username || "").trim().toLowerCase() === username.toLowerCase()
+    );
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    await deleteUser(user.username);
+    return res.status(200).json({ username: user.username });
+  }
+
   if (req.method !== "PATCH") {
-    return methodNotAllowed(res, ["GET", "PATCH", "OPTIONS"]);
+    return methodNotAllowed(res, ["GET", "PATCH", "DELETE", "OPTIONS"]);
   }
 
   const body = getJsonBody(req);
@@ -173,7 +205,25 @@ async function handleUsersAdmin(req, res) {
     });
   }
 
-  const updatedUser = await updateUser(currentUser.username, updates);
+  const updatesToSave = { ...updates };
+  if (
+    String(currentUser.status || "").trim().toLowerCase() === "pending" &&
+    updates.status === "active"
+  ) {
+    Object.assign(updatesToSave, {
+      verification_code_hash: "",
+      verification_expires_at: "",
+      pending_expires_at: "",
+      reset_password_code_hash: "",
+      reset_password_expires_at: "",
+      reset_password_attempts: "0",
+      pending_email: "",
+      email_change_code_hash: "",
+      email_change_expires_at: "",
+    });
+  }
+
+  const updatedUser = await updateUser(currentUser.username, updatesToSave);
   return res.status(200).json({ user: adminUser(updatedUser) });
 }
 
