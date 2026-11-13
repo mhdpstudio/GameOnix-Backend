@@ -99,8 +99,8 @@ function validateUserUpdates(rawUpdates) {
 
   if (Object.hasOwn(rawUpdates, "status")) {
     const status = normalizeRequiredText(rawUpdates.status, "Status", 32).toLowerCase();
-    if (!["active", "pending"].includes(status)) {
-      throw new Error("Status must be active or pending.");
+    if (!["active", "pending", "banned"].includes(status)) {
+      throw new Error("Status must be active, pending, or banned.");
     }
     updates.status = status;
   }
@@ -207,7 +207,7 @@ async function handleUsersAdmin(req, res) {
 
   const updatesToSave = { ...updates };
   if (
-    String(currentUser.status || "").trim().toLowerCase() === "pending" &&
+    String(currentUser.status || "").trim().toLowerCase() !== "active" &&
     updates.status === "active"
   ) {
     Object.assign(updatesToSave, {

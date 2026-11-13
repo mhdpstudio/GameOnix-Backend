@@ -47,6 +47,10 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: "User not found." });
     }
 
+    if (user.status && String(user.status).toLowerCase() !== "active") {
+      return res.status(403).json({ error: "This account is not active." });
+    }
+
     const favorites = parseFavorites(user.favorites);
 
     if (req.method === "GET") {
