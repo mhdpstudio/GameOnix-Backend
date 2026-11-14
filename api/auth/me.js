@@ -262,6 +262,11 @@ async function handleAdminTools(req, res) {
   }
   res.setHeader("Cache-Control", "private, no-store, max-age=0");
 
+  const resource = req.method === "GET" ? req.query?.resource : undefined;
+  if (resource !== undefined && resource !== "game-requests") {
+    return res.status(400).json({ error: "Unsupported admin tools resource." });
+  }
+
   if (req.method === "GET" && req.query?.username === undefined) {
     return res.status(200).json({ ready: true });
   }
@@ -316,6 +321,46 @@ async function handleAdminTools(req, res) {
   }
 
   if (req.method === "GET") {
+    if (resource === "game-requests") {
+      if (data.canSend !== true) {
+        return res.status(403).json({ error: "Admin access is required." });
+      }
+
+      const gameRequests = (Array.isArray(data.notifications)
+        ? data.notifications
+        : []
+      )
+        .filter(
+          (notification) =>
+            notification?.type === "game_request_admin" &&
+            notification.details &&
+            typeof notification.details === "object"
+        )
+        .map((notification) => ({
+          id: String(notification.id || ""),
+          createdAt: String(notification.createdAt || ""),
+          readAt: String(notification.readAt || ""),
+          username: String(notification.details.username || ""),
+          email: String(notification.details.email || ""),
+          gameTitle: String(notification.details.gameTitle || ""),
+          platform: String(notification.details.platform || ""),
+          details: String(notification.details.details || ""),
+        }))
+        .filter(
+          (request) =>
+            request.id &&
+            request.username &&
+            request.gameTitle &&
+            request.platform
+        );
+
+      return res.status(200).json({
+        ready: true,
+        canSend: true,
+        gameRequests,
+      });
+    }
+
     return res.status(200).json({
       ready: true,
       canSend: data.canSend === true,
